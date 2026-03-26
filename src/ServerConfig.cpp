@@ -57,10 +57,3 @@ const std::vector<LocationConfig>& ServerConfig::getLocations() const {
 void ServerConfig::setLocations(const std::vector<LocationConfig>& locations) {
     this->_locations = locations;
 }
-
-const std::vector<WildcardState>& ServerConfig::getServerNameWilds() const {
-    return _server_name_wilds;
-}
-void ServerConfig::setServerNameWilds(const std::vector<WildcardState>& wilds) {
-    this->_server_name_wilds = wilds;
-}

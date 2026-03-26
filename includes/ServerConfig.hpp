@@ -10,8 +10,9 @@ struct ServerConfig {
         std::vector<std::string>    _index;
         std::vector<std::string>    _server_names;
         std::map<int, std::string>  _error_pages;
-        size_t                      _client_max_body_size; // Max bytes for client requests
-        std::vector<LocationConfig> _locations;            // All the routes belonging to this server
+        size_t                      _client_max_body_size;
+        std::vector<LocationConfig> _locations;
+        std::vector<WildcardState>  _server_name_wilds;
     public:
         ServerConfig();
         const std::string& getHost() const;
@@ -30,4 +31,6 @@ struct ServerConfig {
         void setClientMaxBodySize(size_t client_max_body_size);
         const std::vector<LocationConfig>& getLocations() const;
         void setLocations(const std::vector<LocationConfig>& locations);
+        const std::vector<WildcardState>& getServerNameWilds() const;
+        void setServerNameWilds(const std::vector<WildcardState>& locations);
 };

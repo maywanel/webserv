@@ -7,7 +7,7 @@ SRCS		= $(wildcard src/*.cpp)
 
 OBJS		= $(SRCS:.cpp=.o)
 
-all: $(NAME)
+all: $(NAME) clean
 
 $(NAME): $(OBJS)
 	$(CXX) $(CXXFLAGS) -o $(NAME) $(OBJS)

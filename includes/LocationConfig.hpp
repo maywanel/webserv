@@ -32,6 +32,20 @@
 #include <netinet/in.h>
 #include <netdb.h>
 
+enum ParserState {
+    STATE_GLOBAL,
+    STATE_SERVER,
+    STATE_LOCATION
+};
+
+enum WildcardState {
+    STATE_FULL,
+    STATE_NONE,
+    STATE_PRE,
+    STATE_SUF,
+    STATE_ERROR
+};
+
 class LocationConfig {
     private:
         std::string                 _path;

@@ -27,7 +27,7 @@ bool isNumeric(const std::string& str) {
 bool isValidPort(const std::string& portStr) {
     if (!isNumeric(portStr)) return false;
     int port = std::atoi(portStr.c_str());
-    return (port > 0 && port <= 65535);
+    return (port >= 1024 && port <= 65535);
 }
 
 bool isValidIP(const std::string& ip) {
@@ -51,8 +51,37 @@ bool isValidIP(const std::string& ip) {
     return (dots == 4 && actual_dots == 3);
 }
 
+WildcardState checkWildcard(const std::string& value, int n) {
+    size_t wild_pos = value.find("*");
+    if (n) {
+        int wilds = 0;
+        if (value == "*.*")
+            return STATE_FULL;
+        for (size_t i = 0;i < value.length();i++)
+            if (value[i] == '*')
+                wilds++;
+        if (wilds > 1)
+            return STATE_ERROR;
+        if (value.size() - 1 == wild_pos)
+            return STATE_SUF;
+        else if (wild_pos == 0 && value.size() > 1)
+            return STATE_PRE;
+        else if (wild_pos == 0 && value.size() == 1)
+            return STATE_FULL;
+        else if (wild_pos == std::string::npos)
+            return STATE_NONE;
+        return STATE_ERROR;
+    }
+    if (value.size() == 1 && wild_pos == 0)
+        return STATE_FULL;
+    if (wild_pos == std::string::npos)
+        return STATE_NONE;
+    return STATE_ERROR;
+}
+
 void WebServConfig::parse(const std::string& filename) {
     std::vector<std::string> tokens = tokenizeConfig(filename);
+    WildcardState wstate;
     ParserState state = STATE_GLOBAL;
     ServerConfig current_server;
     LocationConfig current_location;
@@ -103,11 +132,18 @@ void WebServConfig::parse(const std::string& filename) {
                     if (colon_pos != std::string::npos) {
                         std::string ip = listen_val.substr(0, colon_pos);
                         std::string port_str = listen_val.substr(colon_pos + 1);
-                        if (!isValidIP(ip) || !isValidPort(port_str))
-                            throw std::runtime_error("Config Error: Invalid IP:Port in listen directive -> " + listen_val);
-                        current_server.setHost(ip);
-                        current_server.setPort(std::atoi(port_str.c_str()));
-                    } 
+                        wstate = checkWildcard(ip, 0);
+                        if (wstate == STATE_FULL && isValidPort(port_str)) {
+                            current_server.setHost("0.0.0.0");
+                            current_server.setPort(std::atoi(port_str.c_str()));
+                        }
+                        else {
+                            if (!isValidIP(ip) || !isValidPort(port_str) || wstate == STATE_ERROR)
+                                throw std::runtime_error("Config Error: Invalid IP:Port in listen directive -> " + listen_val);
+                            current_server.setHost(ip);
+                            current_server.setPort(std::atoi(port_str.c_str()));
+                        }
+                    }
                     else {
                         if (listen_val.find('.') != std::string::npos || listen_val == "localhost") {
                             if (!isValidIP(listen_val))
@@ -128,9 +164,17 @@ void WebServConfig::parse(const std::string& filename) {
             else if (token == "server_name") {
                 i++;
                 std::vector<std::string> server_names = current_server.getServerNames();
-                while (i < tokens.size() && tokens[i] != ";")
-                    server_names.push_back(tokens[i++]);
+                std::vector<WildcardState> server_name_wilds = current_server.getServerNameWilds();
+                while (i < tokens.size() && tokens[i] != ";") {
+                    wstate = checkWildcard(tokens[i], 1);
+                    if (wstate == STATE_ERROR)
+                        throw std::runtime_error("Syntax error: Invalid Wildcard");
+                    server_names.push_back(tokens[i]);
+                    server_name_wilds.push_back(wstate);
+                    i++;
+                }
                 current_server.setServerNames(server_names);
+                current_server.setServerNameWilds(server_name_wilds);
             }
             else if (token == "host") {
                 if (i + 2 < tokens.size() && tokens[i + 2] == ";") {

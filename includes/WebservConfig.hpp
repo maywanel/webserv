@@ -2,12 +2,6 @@
 
 #include "ServerConfig.hpp"
 
-enum ParserState {
-    STATE_GLOBAL,
-    STATE_SERVER,
-    STATE_LOCATION
-};
-
 class WebServConfig {
     private:
         std::vector<ServerConfig> _servers;

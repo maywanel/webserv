@@ -134,6 +134,8 @@ void WebServConfig::parse(const std::string& filename) {
             }
             else if (token == "host") {
                 if (i + 2 < tokens.size() && tokens[i + 2] == ";") {
+                    if (!isValidIP(tokens[i + 1]))
+                        throw std::runtime_error("Config Error: Invalid IP in host directive -> " + tokens[i + 1]);
                     current_server.setHost(tokens[i + 1]);
                     i += 2;
                 }

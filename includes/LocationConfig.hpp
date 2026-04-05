@@ -52,9 +52,11 @@ class LocationConfig {
         std::string                 _root;
         std::vector<std::string>    _index;
         bool                        _autoindex;
+        bool                        _autoindex_set;
         std::vector<std::string>    _methods;
         int                         _rcode;
         std::string                 _rurl;
+        bool                        _return_set;
         std::vector<std::string>    _cgi_ext;
         std::vector<std::string>    _cgi_path;
         std::string                 _upload_dir;
@@ -68,6 +70,8 @@ class LocationConfig {
         void setIndex(const std::vector<std::string>& value);
         bool getAutoindex() const;
         void setAutoindex(bool value);
+        bool isAutoindexSet() const;
+        void setAutoindexSet(bool autoindex_set);
         const std::vector<std::string>& getMethods() const;
         void setMethods(const std::vector<std::string>& value);
         int getRcode() const;
@@ -80,4 +84,6 @@ class LocationConfig {
         void setCgiPath(const std::vector<std::string>& value);
         const std::string& getUploadDir() const;
         void setUploadDir(const std::string& value);
+        bool isReturnSet() const;
+        void setReturnSet(bool return_set);
 };

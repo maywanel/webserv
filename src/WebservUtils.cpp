@@ -51,6 +51,32 @@ bool isValidIP(const std::string& ip) {
     return (dots == 4 && actual_dots == 3);
 }
 
+long long check_client_max_body_size(const std::string& value) {
+    if (value.empty()) return -1;
+    char last_char = value[value.length() - 1];
+    std::string number_part = value.substr(0, value.length() - 1);
+    if (!isNumeric(number_part)) return -1;
+    long long size = std::atoll(number_part.c_str());
+    if (size < 0) return -1;
+    if (last_char == 'K' || last_char == 'k')
+        size *= 1024LL;
+    else if (last_char == 'M' || last_char == 'm')
+        size *= 1024LL * 1024LL;
+    else if (last_char == 'G' || last_char == 'g')
+        size *= 1024LL * 1024LL * 1024LL;
+    else
+        return -1;
+    return size;
+}
+
+void checkErrorPage(const std::string& code, const ServerConfig& server) {
+    int errorCode = std::atoi(code.c_str());
+    for (size_t i = 0; i < server.getErrorPages().size(); ++i) {
+        if (server.getErrorPages().find(errorCode) != server.getErrorPages().end())
+            throw std::runtime_error("Config Error: error page code already defined -> " + code);
+    }
+}
+
 void WebServConfig::parse(const std::string& filename) {
     std::vector<std::string> tokens = tokenizeConfig(filename);
     ParserState state = STATE_GLOBAL;
@@ -85,6 +111,7 @@ void WebServConfig::parse(const std::string& filename) {
                 std::vector<LocationConfig> locations = current_server.getLocations();
                 locations.push_back(current_location);
                 current_server.setLocations(locations);
+                current_location = LocationConfig();
                 state = STATE_SERVER;
             } 
             else if (state == STATE_SERVER) {
@@ -97,7 +124,7 @@ void WebServConfig::parse(const std::string& filename) {
         }
         else if (state == STATE_SERVER) {
             if (token == "listen") {
-                if (i + 2 < tokens.size() && tokens[i + 2] == ";") {
+                if (!current_server.isListenSet() && i + 2 < tokens.size() && tokens[i + 2] == ";") {
                     std::string listen_val = tokens[i + 1];
                     size_t colon_pos = listen_val.find(':');
                     if (colon_pos != std::string::npos) {
@@ -120,6 +147,7 @@ void WebServConfig::parse(const std::string& filename) {
                             current_server.setPort(std::atoi(listen_val.c_str()));
                         }
                     }
+                    current_server.setListenSet(true);
                     i += 2;
                 }
                 else
@@ -133,22 +161,22 @@ void WebServConfig::parse(const std::string& filename) {
                 current_server.setServerNames(server_names);
             }
             else if (token == "host") {
-                if (i + 2 < tokens.size() && tokens[i + 2] == ";") {
+                if (current_server.getHost().empty() && i + 2 < tokens.size() && tokens[i + 2] == ";") {
                     if (!isValidIP(tokens[i + 1]))
                         throw std::runtime_error("Config Error: Invalid IP in host directive -> " + tokens[i + 1]);
                     current_server.setHost(tokens[i + 1]);
                     i += 2;
                 }
                 else
-                    throw std::runtime_error("Syntax error: Invalid host directive");
+                    throw std::runtime_error("Syntax error: Invalid host directive: " + tokens[i + 1]);
             }
             else if (token == "root") {
-                if (i + 2 < tokens.size() && tokens[i + 2] == ";") {
+                if (current_server.getRoot().empty() && i + 2 < tokens.size() && tokens[i + 2] == ";") {
                     current_server.setRoot(tokens[i + 1]);
                     i += 2;
                 }
                 else
-                    throw std::runtime_error("Syntax error: Invalid root directive");
+                    throw std::runtime_error("Syntax error: Invalid root directive: " + tokens[i + 1]);
             }
             else if (token == "index") {
                 i++;
@@ -159,6 +187,7 @@ void WebServConfig::parse(const std::string& filename) {
             }
             else if (token == "error_page") {
                 if (i + 3 < tokens.size() && tokens[i + 3] == ";") {
+                    checkErrorPage(tokens[i + 1], current_server);
                     std::map<int, std::string> error_pages = current_server.getErrorPages();
                     error_pages[std::atoi(tokens[i + 1].c_str())] = tokens[i + 2];
                     current_server.setErrorPages(error_pages);
@@ -168,8 +197,12 @@ void WebServConfig::parse(const std::string& filename) {
                     throw std::runtime_error("Syntax error: Invalid error_page directive");
             }
             else if (token == "client_max_body_size") {
-                if (i + 2 < tokens.size() && tokens[i + 2] == ";") {
-                    current_server.setClientMaxBodySize(std::atol(tokens[i + 1].c_str()));
+                if (!current_server.isClientMaxBodySizeSet() && i + 2 < tokens.size() && tokens[i + 2] == ";") {
+                    long long size = check_client_max_body_size(tokens[i + 1]);
+                    if (size == -1)
+                        throw std::runtime_error("Config Error: Invalid client_max_body_size value -> " + tokens[i + 1]);
+                    current_server.setClientMaxBodySize(size);
+                    current_server.setClientMaxBodySizeSet(true);
                     i += 2;
                 }
                 else
@@ -181,20 +214,21 @@ void WebServConfig::parse(const std::string& filename) {
 
         else if (state == STATE_LOCATION) {
             if (token == "root") {
-                if (i + 2 < tokens.size() && tokens[i + 2] == ";") {
+                if (current_location.getRoot().empty() && i + 2 < tokens.size() && tokens[i + 2] == ";") {
                     current_location.setRoot(tokens[i + 1]);
                     i += 2;
                 }
                 else
-                    throw std::runtime_error("Syntax error: Invalid root directive");
+                    throw std::runtime_error("Syntax error: Invalid root directive: " + tokens[i + 1]);
             }
             else if (token == "autoindex") {
-                if (i + 2 < tokens.size() && tokens[i + 2] == ";") {
+                if (current_location.isAutoindexSet() == false && i + 2 < tokens.size() && tokens[i + 2] == ";") {
                     current_location.setAutoindex(tokens[i + 1] == "on");
+                    current_location.setAutoindexSet(true);
                     i += 2;
                 }
                 else
-                    throw std::runtime_error("Syntax error: Invalid autoindex directive");
+                    throw std::runtime_error("Syntax error: Invalid autoindex directive: " + tokens[i + 1]);
             }
             else if (token == "index") {
                 i++;
@@ -224,12 +258,12 @@ void WebServConfig::parse(const std::string& filename) {
                 }
             }
             else if (token == "upload_dir") {
-                if (i + 2 < tokens.size() && tokens[i + 2] == ";") {
+                if (current_location.getUploadDir().empty() && i + 2 < tokens.size() && tokens[i + 2] == ";") {
                     current_location.setUploadDir(tokens[i + 1]);
                     i += 2;
                 }
                 else
-                    throw std::runtime_error("Syntax error: Invalid upload_dir directive");
+                    throw std::runtime_error("Syntax error: Invalid upload_dir directive: " + tokens[i + 1]);
             }
             else if (token == "allow_methods" || token == "methods") {
                 i++;
@@ -241,21 +275,24 @@ void WebServConfig::parse(const std::string& filename) {
                 }
             }
             else if (token == "return") {
-                if (i + 3 < tokens.size() && tokens[i + 3] == ";") {
+                bool isSet = current_location.isReturnSet();
+                if (!isSet && i + 3 < tokens.size() && tokens[i + 3] == ";") {
                     current_location.setRcode(std::atoi(tokens[i + 1].c_str()));
                     current_location.setRurl(tokens[i + 2]);
+                    current_location.setReturnSet(true);
                     i += 3;
                 }
-                else if (i + 2 < tokens.size() && tokens[i + 2] == ";") {
+                else if (!isSet && i + 2 < tokens.size() && tokens[i + 2] == ";") {
                     current_location.setRcode(std::atoi(tokens[i + 1].c_str()));
                     if (current_location.getRcode() == 0)
                         current_location.setRurl(tokens[i + 1]);
                     else
                         current_location.setRcode(current_location.getRcode());
+                    current_location.setReturnSet(true);
                     i += 2;
                 }
                 else
-                    throw std::runtime_error("Syntax error: Invalid return directive");
+                    throw std::runtime_error("Syntax error: Invalid return directive: " + tokens[i + 1]);
             }
             else
                 throw std::runtime_error("Unknown directive in location block: " + token + " ");
@@ -317,7 +354,9 @@ void WebServConfig::applyDefaults() {
             default_names.push_back(""); 
             _servers[i].setServerNames(default_names);
         }
-        if (_servers[i].getClientMaxBodySize() <= 0)
+        if (_servers[i].isClientMaxBodySizeSet() == false)
+            _servers[i].setClientMaxBodySize(1048576);
+        else if (_servers[i].getClientMaxBodySize() <= 0)
             throw std::runtime_error("Config Error: Client max body size cant be a zero or less");
         if (_servers[i].getRoot().empty())
             _servers[i].setRoot("./www"); 

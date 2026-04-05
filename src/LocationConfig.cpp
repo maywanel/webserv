@@ -29,6 +29,12 @@ bool LocationConfig::getAutoindex() const {
 void LocationConfig::setAutoindex(bool value) {
     this->_autoindex = value;
 }
+bool LocationConfig::isAutoindexSet() const {
+    return _autoindex_set;
+}
+void LocationConfig::setAutoindexSet(bool autoindex_set) {
+    this->_autoindex_set = autoindex_set;
+}
 
 const std::vector<std::string>& LocationConfig::getMethods() const {
     return _methods;
@@ -70,4 +76,11 @@ const std::string& LocationConfig::getUploadDir() const {
 }
 void LocationConfig::setUploadDir(const std::string& value) {
     this->_upload_dir = value;
+}
+
+bool LocationConfig::isReturnSet() const {
+    return _return_set;
+}
+void LocationConfig::setReturnSet(bool return_set) {
+    this->_return_set = return_set;
 }

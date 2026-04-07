@@ -69,12 +69,21 @@ long long check_client_max_body_size(const std::string& value) {
     return size;
 }
 
-void checkErrorPage(const std::string& code, const ServerConfig& server) {
+template<typename T>
+void checkErrorPage(const std::string& code, const T& sl) {
     int errorCode = std::atoi(code.c_str());
-    for (size_t i = 0; i < server.getErrorPages().size(); ++i) {
-        if (server.getErrorPages().find(errorCode) != server.getErrorPages().end())
+    for (size_t i = 0; i < sl.getErrorPages().size(); ++i) {
+        if (sl.getErrorPages().find(errorCode) != sl.getErrorPages().end())
             throw std::runtime_error("Config Error: error page code already defined -> " + code);
     }
+}
+
+void checkLocationPath(const std::string& path, const std::vector<LocationConfig>& existing_locations) {
+    if (path.empty() || path[0] != '/')
+        throw std::runtime_error("Config Error: Location path must start with '/' -> " + path);
+    for (size_t i = 0; i < existing_locations.size(); ++i)
+        if (existing_locations[i].getPath() == path)
+            throw std::runtime_error("Config Error: Duplicate location path -> " + path);
 }
 
 void WebServConfig::parse(const std::string& filename) {
@@ -99,7 +108,9 @@ void WebServConfig::parse(const std::string& filename) {
             if (i + 2 < tokens.size() && tokens[i + 2] == "{") {
                 state = STATE_LOCATION;
                 current_location = LocationConfig();
-                current_location.setPath(tokens[i+1]);
+                std::string subpath = (tokens[i + 1].length() > 1 && tokens[i + 1][tokens[i + 1].length() - 1] == '/') ? tokens[i + 1].substr(0, tokens[i + 1].length() - 1) : tokens[i + 1];
+                checkLocationPath(subpath, current_server.getLocations());
+                current_location.setPath(subpath);
                 i += 2;
                 continue;
             }
@@ -294,6 +305,17 @@ void WebServConfig::parse(const std::string& filename) {
                 else
                     throw std::runtime_error("Syntax error: Invalid return directive: " + tokens[i + 1]);
             }
+            else if (token == "error_page") {
+                if (i + 3 < tokens.size() && tokens[i + 3] == ";") {
+                    checkErrorPage(tokens[i + 1], current_location);
+                    std::map<int, std::string> error_pages = current_location.getErrorPages();
+                    error_pages[std::atoi(tokens[i + 1].c_str())] = tokens[i + 2];
+                    current_location.setErrorPages(error_pages);
+                    i += 3;
+                }
+                else
+                    throw std::runtime_error("Syntax error: Invalid error_page directive");
+            }
             else
                 throw std::runtime_error("Unknown directive in location block: " + token + " ");
         }
@@ -322,25 +344,6 @@ void WebServConfig::validate() {
                         if (names_i[k] == names_j[l])
                             throw std::runtime_error("Config Error: Conflicting server name '" + names_i[k] + "' on same port.");
             }
-    for (size_t i = 0; i < _servers.size(); ++i) {
-        if (!_servers[i].getRoot().empty() && !isDirectory(_servers[i].getRoot())) 
-            throw std::runtime_error("Config Error: Server root directory does not exist: " + _servers[i].getRoot());
-        std::vector<LocationConfig> locs = _servers[i].getLocations();
-        for (size_t j = 0; j < locs.size(); ++j) {
-            if (!locs[j].getRoot().empty() && !isDirectory(locs[j].getRoot()))
-                throw std::runtime_error("Config Error: Location root directory does not exist: " + locs[j].getRoot());
-            std::vector<std::string> cgi_paths = locs[j].getCgiPath();
-            for (size_t k = 0; k < cgi_paths.size(); ++k)
-                if (!isFile(cgi_paths[k]) || access(cgi_paths[k].c_str(), X_OK) != 0)
-                    throw std::runtime_error("Config Error: CGI path is not a valid executable file: " + cgi_paths[k]);
-            std::vector<std::string> methods = locs[j].getMethods();
-            for (size_t k = 0; k < methods.size(); ++k) {
-                if (methods[k] != "GET" && methods[k] != "POST" && methods[k] != "DELETE") {
-                    throw std::runtime_error("Config Error: Invalid method: " + methods[k]);
-                }
-            }
-        }
-    }
 }
 
 void WebServConfig::applyDefaults() {

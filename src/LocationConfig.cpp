@@ -84,3 +84,10 @@ bool LocationConfig::isReturnSet() const {
 void LocationConfig::setReturnSet(bool return_set) {
     this->_return_set = return_set;
 }
+
+const std::map<int, std::string>& LocationConfig::getErrorPages() const {
+    return _error_pages;
+}
+void LocationConfig::setErrorPages(const std::map<int, std::string>& error_pages) {
+    this->_error_pages = error_pages;
+}

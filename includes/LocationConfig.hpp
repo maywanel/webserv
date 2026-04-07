@@ -60,6 +60,7 @@ class LocationConfig {
         std::vector<std::string>    _cgi_ext;
         std::vector<std::string>    _cgi_path;
         std::string                 _upload_dir;
+        std::map<int, std::string>  _error_pages;
     public:
         LocationConfig();
         const std::string& getPath() const;
@@ -86,4 +87,6 @@ class LocationConfig {
         void setUploadDir(const std::string& value);
         bool isReturnSet() const;
         void setReturnSet(bool return_set);
+        const std::map<int, std::string>& getErrorPages() const;
+        void setErrorPages(const std::map<int, std::string>& error_pages);
 };

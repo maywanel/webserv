@@ -8,10 +8,8 @@ std::vector<std::string> WebServConfig::tokenizeConfig(const std::string& filena
     std::vector<std::string> tokens;
     std::ifstream file(filename.c_str());
 
-    if (!file.is_open()) {
-        std::cerr << "Error: Could not open config file: " << filename << std::endl;
-        return tokens;
-    }
+    if (!file.is_open())
+        throw std::runtime_error("Error: Could not open config file: " + filename);
 
     std::string line;
     while (std::getline(file, line)) {

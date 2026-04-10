@@ -135,7 +135,7 @@ void WebServConfig::parse(const std::string& filename) {
         }
         else if (state == STATE_SERVER) {
             if (token == "listen") {
-                if (!current_server.isListenSet() && i + 2 < tokens.size() && tokens[i + 2] == ";") {
+                if (i + 2 < tokens.size() && tokens[i + 2] == ";") {
                     std::string listen_val = tokens[i + 1];
                     size_t colon_pos = listen_val.find(':');
                     if (colon_pos != std::string::npos) {
@@ -144,7 +144,9 @@ void WebServConfig::parse(const std::string& filename) {
                         if (!isValidIP(ip) || !isValidPort(port_str))
                             throw std::runtime_error("Config Error: Invalid IP:Port in listen directive -> " + listen_val);
                         current_server.setHost(ip);
-                        current_server.setPort(std::atoi(port_str.c_str()));
+                        std::vector<int> port_vec;
+                        port_vec.push_back(std::atoi(port_str.c_str()));
+                        current_server.setPort(port_vec);
                     }
                     else {
                         if (listen_val.find('.') != std::string::npos || listen_val == "localhost") {
@@ -155,10 +157,11 @@ void WebServConfig::parse(const std::string& filename) {
                         else {
                             if (!isValidPort(listen_val))
                                 throw std::runtime_error("Config Error: Invalid Port in listen directive -> " + listen_val);
-                            current_server.setPort(std::atoi(listen_val.c_str()));
+                            std::vector<int> port_vec;
+                            port_vec.push_back(std::atoi(listen_val.c_str()));
+                            current_server.setPort(port_vec);
                         }
                     }
-                    current_server.setListenSet(true);
                     i += 2;
                 }
                 else
@@ -280,6 +283,8 @@ void WebServConfig::parse(const std::string& filename) {
                 i++;
                 while (i < tokens.size() && tokens[i] != ";") {
                     std::vector<std::string> methods = current_location.getMethods();
+                    if (tokens[i] != "GET" && tokens[i] != "POST" && tokens[i] != "DELETE")
+                        throw std::runtime_error("Syntax error: Invalid HTTP method in allow_methods directive: " + tokens[i]);
                     methods.push_back(tokens[i]);
                     current_location.setMethods(methods);
                     i++;
@@ -350,8 +355,8 @@ void WebServConfig::applyDefaults() {
     for (size_t i = 0; i < _servers.size(); ++i) {
         if (_servers[i].getHost().empty())
             _servers[i].setHost("0.0.0.0");
-        if (_servers[i].getPort() == 0)
-            _servers[i].setPort(8080);
+        if (_servers[i].getPort().empty())
+            _servers[i].setPort(std::vector<int>(1, 8080));
         if (_servers[i].getServerNames().empty()) {
             std::vector<std::string> default_names;
             default_names.push_back(""); 

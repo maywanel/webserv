@@ -2,11 +2,20 @@
 
 #include "LocationConfig.hpp"
 
+enum ErrorStatus {
+    ERROR_NONE = 0,
+    ERROR_BAD_REQUEST = 400,
+    ERROR_NOT_FOUND = 404,
+    ERROR_METHOD_NOT_ALLOWED = 405,
+    ERROR_PAYLOAD_TOO_LARGE = 413,
+    ERROR_FORBIDDEN = 403,
+    ERROR_INTERNAL_SERVER_ERROR = 500,
+};
+
 struct ServerConfig {
     private:
         std::string                 _host;
-        int                         _port;
-        bool                        _listen_set;
+        std::vector<int>            _port;
         std::string                 _root;
         std::vector<std::string>    _index;
         std::vector<std::string>    _server_names;
@@ -18,8 +27,8 @@ struct ServerConfig {
         ServerConfig();
         const std::string& getHost() const;
         void setHost(const std::string& host);
-        int getPort() const;
-        void setPort(int port);
+        const std::vector<int>& getPort() const;
+        void setPort(const std::vector<int>& port);
         const std::string& getRoot() const;
         void setRoot(const std::string& root);
         const std::vector<std::string> & getIndex() const;
@@ -32,8 +41,6 @@ struct ServerConfig {
         void setClientMaxBodySize(size_t client_max_body_size);
         const std::vector<LocationConfig>& getLocations() const;
         void setLocations(const std::vector<LocationConfig>& locations);
-        bool isListenSet() const;
-        void setListenSet(bool listen_set);
         bool isClientMaxBodySizeSet() const;
         void setClientMaxBodySizeSet(bool client_max_body_size_set);
 };

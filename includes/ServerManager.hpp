@@ -8,18 +8,9 @@
 #include <arpa/inet.h>
 #include <iostream>
 #include <stdexcept>
-#include "Client.hpp"
 #define MAX_EVENTS 1024
 
-enum ErrorStatus {
-    ERROR_NONE = 0,
-    ERROR_BAD_REQUEST = 400,
-    ERROR_NOT_FOUND = 404,
-    ERROR_METHOD_NOT_ALLOWED = 405,
-    ERROR_PAYLOAD_TOO_LARGE = 413,
-    ERROR_FORBIDDEN = 403,
-    ERROR_INTERNAL_SERVER_ERROR = 500,
-};
+#include "Client.hpp"
 
 struct ListenSocket {
     int fd;

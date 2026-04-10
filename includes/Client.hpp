@@ -62,5 +62,6 @@ class Client {
         void                    generateResponse(const std::string& target_path, ErrorStatus error);
         std::string             getMimeType(const std::string& target_path);
         void                    generateErrorResponse(int error);
+        std::string             generateAutoindex(const std::string& target_path, const std::string& uri);
 };
 

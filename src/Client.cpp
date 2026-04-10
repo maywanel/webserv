@@ -70,40 +70,26 @@ void Client::appendRequestData(const char* data, ssize_t len) {
             }
             _state = STATE_READING_BODY;
             _content_length = parseContentLength(_request_buffer);
-            _request.setBodyInFile(_content_length > 1048576);
-            if (_request.isBodyInFile()) {
-                std::stringstream ss;
-                ss << "upload_temp_" << _fd << ".tmp";
-                _temp_filename = ss.str();
-                _body_file.open(_temp_filename.c_str(), std::ios::binary | std::ios::app);
-            }
+            std::stringstream ss;
+            ss << "upload_temp_" << _fd << ".tmp";
+            _temp_filename = ss.str();
+            _body_file.open(_temp_filename.c_str(), std::ios::binary | std::ios::app);
             std::string leftover_body = extractBodyFromBuffer(_request_buffer);
             if (!leftover_body.empty()) {
-                if (_request.isBodyInFile())
-                    _body_file.write(leftover_body.c_str(), leftover_body.length());
-                else
-                    _request.setBodyString(leftover_body);
+                _body_file.write(leftover_body.c_str(), leftover_body.length());
                 _bytes_received += leftover_body.length();
             }
             if (_bytes_received >= _content_length) {
-                if (_request.isBodyInFile() && _body_file.is_open())
-                    _body_file.close();
+                _body_file.close();
                 _state = STATE_PROCESSING;
             }
         }
     } 
     else if (_state == STATE_READING_BODY) {
-        if (_request.isBodyInFile()) {
-            _body_file.write(data, len);
-            _bytes_received += len;
-        }
-        else{
-            _request.setBodyString(_request.getBodyString() + std::string(data, len));
-            _bytes_received += len;
-        }
+        _body_file.write(data, len);
+        _bytes_received += len;
         if (_bytes_received >= _content_length) {
-            if (_request.isBodyInFile())
-                _body_file.close();
+            _body_file.close();
             _state = STATE_PROCESSING;
         }
     }
@@ -224,13 +210,96 @@ void Client::generateResponse(const std::string& target_path, ErrorStatus error)
         generateErrorResponse(error);
         return;
     }
+    if (_matched_location) {
+        std::vector<std::string> allowed_methods = _matched_location->getMethods();
+        if (!allowed_methods.empty()) {
+            bool method_allowed = false;
+            for (size_t i = 0; i < allowed_methods.size(); ++i) {
+                if (_request.getMethod() == allowed_methods[i]) {
+                    method_allowed = true;
+                    break;
+                }
+            }
+            if (!method_allowed) {
+                generateErrorResponse(ERROR_METHOD_NOT_ALLOWED);
+                return;
+            }
+        }
+    }
+    if (_request.getMethod() == "DELETE") {
+        if (checkPath(target_path) == PATH_NOT_FOUND) {
+            generateErrorResponse(ERROR_NOT_FOUND);
+            return;
+        }
+        if (checkPath(target_path) == PATH_IS_DIR) {
+            generateErrorResponse(ERROR_FORBIDDEN); 
+            return;
+        }
+        if (std::remove(target_path.c_str()) == 0) {
+            _response_buffer = "HTTP/1.1 204 No Content\r\n\r\n";
+            _state = STATE_SENDING_RESPONSE;
+            std::cout << "Successfully deleted file: " << target_path << std::endl;
+        }
+        else
+            generateErrorResponse(ERROR_FORBIDDEN);
+        return;
+    }
+    if (_request.getMethod() == "POST") {
+        std::string upload_dir = _matched_location ? _matched_location->getUploadDir() : "";
+        if (!upload_dir.empty()) {
+            std::string final_upload_path = _matched_server->getRoot() + upload_dir;
+            std::cout << "Upload dir: " << final_upload_path << std::endl;
+            if (final_upload_path[final_upload_path.length() - 1] != '/') {
+                final_upload_path += "/";
+            }
+            size_t last_slash = _request.getUri().find_last_of('/');
+            std::string file_name = _request.getUri().substr(last_slash + 1);
+            if (file_name.empty()) file_name = "uploaded_file" + _temp_filename;
+            final_upload_path += file_name;
+            if (std::rename(_temp_filename.c_str(), final_upload_path.c_str()) == 0) {
+                _response_buffer = "HTTP/1.1 201 Created\r\nContent-Length: 0\r\n\r\n";
+                _state = STATE_SENDING_RESPONSE;
+                std::cout << "Successfully uploaded file to: " << final_upload_path << std::endl;
+            }
+            else
+                generateErrorResponse(ERROR_INTERNAL_SERVER_ERROR);
+            return;
+            
+        } 
+        // else {
+            // 3. If there is NO upload_dir, this POST is meant for a CGI script!
+            // We will handle CGI next, so for now, just return a 403 or pass it down.
+            // We'll leave this block open for the CGI implementation!
+        // }
+    }
+    if (target_path == "") {
+        generateErrorResponse(ERROR_NOT_FOUND);
+        return;
+    }
     if (target_path == "") {
         generateErrorResponse(ERROR_NOT_FOUND);
         return;
     }
     else if (checkPath(target_path) == PATH_IS_DIR) {
-        generateErrorResponse(ERROR_FORBIDDEN);
-        return;
+        if (_matched_location && _matched_location->getAutoindex()) {
+            std::string autoindex_html = generateAutoindex(target_path, _request.getUri());
+            if (autoindex_html.empty()) {
+                generateErrorResponse(ERROR_INTERNAL_SERVER_ERROR);
+                return;
+            }
+            std::ostringstream oss;
+            oss << autoindex_html.length();
+            response = "HTTP/1.1 200 OK\r\n"
+                       "Content-Type: text/html\r\n"
+                       "Content-Length: " + oss.str() + "\r\n\r\n" + autoindex_html;
+            _response_buffer = response;
+            _state = STATE_SENDING_RESPONSE;
+            return;
+        }
+        else {
+            generateErrorResponse(ERROR_FORBIDDEN);
+            return;
+        }
     }
     else {
         std::ifstream file(target_path.c_str(), std::ios::binary);
@@ -345,4 +414,33 @@ std::string Client::getMimeType(const std::string& target_path) {
     if (ext == ".pdf")                   return "application/pdf";
     if (ext == ".xml")                   return "application/xml";
     return "application/octet-stream"; 
+}
+
+#include <dirent.h>
+
+std::string Client::generateAutoindex(const std::string& target_path, const std::string& uri) {
+    std::string html = "<!DOCTYPE html>\n<html>\n<head>\n<title>Index of " + uri + "</title>\n"
+                       "<style>body{font-family: monospace; font-size: 16px;} "
+                       "table{width: 100%; text-align: left;} "
+                       "th, td{padding: 5px; border-bottom: 1px solid #ccc;} "
+                       "a{text-decoration: none; color: #1a0dab;} "
+                       "a:hover{text-decoration: underline;}</style>\n"
+                       "</head>\n<body>\n<h1>Index of " + uri + "</h1>\n<hr>\n<table>\n"
+                       "<tr><th>Name</th></tr>\n";
+    DIR* dir = opendir(target_path.c_str());
+    if (dir == NULL)
+        return "";
+    struct dirent* entry;
+    while ((entry = readdir(dir)) != NULL) {
+        std::string file_name = entry->d_name;
+        if (file_name == ".") continue;
+        std::string link = uri;
+        if (link.empty() || link[link.length() - 1] != '/')
+            link += "/";
+        link += file_name;
+        html += "<tr><td><a href=\"" + link + "\">" + file_name + "</a></td></tr>\n";
+    }
+    closedir(dir);
+    html += "</table>\n<hr>\n</body>\n</html>";
+    return html;
 }

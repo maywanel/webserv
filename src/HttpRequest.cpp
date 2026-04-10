@@ -1,6 +1,6 @@
 #include "HttpRequest.hpp"
 
-HttpRequest::HttpRequest() : _body_in_file(false) {}
+HttpRequest::HttpRequest() {}
 HttpRequest::~HttpRequest() {}
 
 const std::string& HttpRequest::getMethod() const {
@@ -31,25 +31,11 @@ void HttpRequest::setHeaders(const std::map<std::string, std::string>& headers) 
     _headers = headers;
 }
 
-const std::string& HttpRequest::getBodyString() const {
-    return _body_string;
-}
-void HttpRequest::setBodyString(const std::string& body) {
-    _body_string = body;
-}
-
 const std::string& HttpRequest::getBodyFilePath() const {
     return _body_file_path;
 }
 void HttpRequest::setBodyFilePath(const std::string& body_file_path) {
     _body_file_path = body_file_path;
-}
-
-bool HttpRequest::isBodyInFile() const {
-    return _body_in_file;
-}
-void HttpRequest::setBodyInFile(bool body_in_file) {
-    _body_in_file = body_in_file;
 }
 
 std::vector<std::string> HttpRequest::tokenizeHeader(const std::string& header) {
@@ -80,9 +66,8 @@ void HttpRequest::parseRequest(const std::string& request) {
         if (colon_pos != std::string::npos) {
             std::string key = tokens[i].substr(0, colon_pos);
             std::string value = tokens[i].substr(colon_pos + 1);
-            if (!key.empty() && (key[key.length() - 1] == ' ' || key[key.length() - 1] == '\t')) {
-                return;//TODO: handle bad request error
-            }
+            if (!key.empty() && (key[key.length() - 1] == ' ' || key[key.length() - 1] == '\t'))
+                throw std::runtime_error("Syntax error: Header key cannot end with whitespace");
             value.erase(0, value.find_first_not_of(" \t"));
             value.erase(value.find_last_not_of(" \t") + 1);
             for (size_t j = 0; j < key.length(); ++j)

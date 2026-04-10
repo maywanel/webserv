@@ -8,6 +8,11 @@
         body { font-family: Arial, sans-scale; margin: 40px; text-align: center; }
         h1 { color: #333; }
         .container { max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f9f9f9; border-radius: 8px; box-shadow: 0 4px 8px rgba(0,0,0,0.1); }
+        button { margin: 10px; padding: 10px 20px; font-size: 16px; cursor: pointer; border: none; border-radius: 4px; }
+        .btn-get { background-color: #4CAF50; color: white; }
+        .btn-post { background-color: #2196F3; color: white; }
+        .btn-delete { background-color: #f44336; color: white; }
+        #response { margin-top: 20px; padding: 10px; background-color: #fff; border: 1px solid #ddd; border-radius: 4px; text-align: left; }
     </style>
 </head>
 <body>
@@ -16,6 +21,44 @@
         <p>If you see this page, it means the web server is successfully running.</p>
         <hr>
         <p><i>Server built for the 42 Network</i></p>
+        
+        <div>
+            <button class="btn-get" onclick="testGET()">GET Request</button>
+            <button class="btn-post" onclick="testPOST()">POST Request</button>
+            <button class="btn-delete" onclick="testDELETE()">DELETE Request</button>
+        </div>
+        
+        <div id="response"></div>
     </div>
+
+    <script>
+        function testGET() {
+            fetch('/', { method: 'GET' })
+                .then(r => r.text())
+                .then(d => document.getElementById('response').innerHTML = '<b>GET Response:</b><pre>' + d + '</pre>')
+                .catch(e => document.getElementById('response').innerHTML = '<b>Error:</b> ' + e);
+        }
+        function testPOST() {
+            const fileInput = document.createElement('input');
+            fileInput.type = 'file';
+            fileInput.onchange = (e) => {
+                const file = e.target.files[0];
+                const formData = new FormData();
+                formData.append('file', file);
+                fetch('/', { method: 'POST', body: formData })
+                    .then(r => r.text())
+                    .then(d => document.getElementById('response').innerHTML = '<b>POST Response:</b><pre>' + d + '</pre>')
+                    .catch(e => document.getElementById('response').innerHTML = '<b>Error:</b> ' + e);
+            };
+            fileInput.click();
+        }
+        
+        function testDELETE() {
+            fetch('/deleteme.txt', { method: 'DELETE' })
+                .then(r => r.text())
+                .then(d => document.getElementById('response').innerHTML = '<b>DELETE Response:</b><pre>' + d + '</pre>')
+                .catch(e => document.getElementById('response').innerHTML = '<b>Error:</b> ' + e);
+        }
+    </script>
 </body>
 </html>

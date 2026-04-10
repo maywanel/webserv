@@ -11,9 +11,7 @@ class HttpRequest {
         std::string                         _uri;
         std::string                         _version;
         std::map<std::string, std::string>  _headers;
-        std::string                         _body_string;
         std::string                         _body_file_path;
-        bool                                _body_in_file;
     public:
         HttpRequest();
         ~HttpRequest();
@@ -27,10 +25,6 @@ class HttpRequest {
         void setVersion(const std::string& version);
         const std::map<std::string, std::string>& getHeaders() const;
         void setHeaders(const std::map<std::string, std::string>& headers);
-        const std::string& getBodyString() const;
-        void setBodyString(const std::string& body);
         const std::string& getBodyFilePath() const;
         void setBodyFilePath(const std::string& body_file_path);
-        bool isBodyInFile() const;
-        void setBodyInFile(bool body_in_file);
 };

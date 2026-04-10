@@ -21,7 +21,7 @@ $(OBJDIR):
 	mkdir -p $(OBJDIR)
 
 clean:
-	rm -rf $(OBJDIR) $(SRCDIR)/*.o
+	rm -rf $(OBJDIR)
 
 fclean: clean
 	rm -f $(NAME)

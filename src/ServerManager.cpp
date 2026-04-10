@@ -20,40 +20,43 @@ void ServerManager::setupSockets() {
     std::vector<ServerConfig> servers = _config.getServers();
     for (size_t i = 0; i < servers.size(); ++i) {
         std::string current_ip = servers[i].getHost();
-        int current_port = servers[i].getPort();
-        bool socket_already_exists = false;
-        for (size_t j = 0; j < _listening_sockets.size(); ++j) {
-            if (_listening_sockets[j].ip == current_ip && _listening_sockets[j].port == current_port) {
-                _listening_sockets[j].virtual_servers.push_back(servers[i]);
-                socket_already_exists = true;
-                break;
+        std::vector<int> current_ports = servers[i].getPort();
+        for (size_t p = 0; p < current_ports.size(); ++p) {
+            int port = current_ports[p];
+            bool socket_already_exists = false;
+            for (size_t j = 0; j < _listening_sockets.size(); ++j) {
+                if (_listening_sockets[j].ip == current_ip && _listening_sockets[j].port == port) {
+                    _listening_sockets[j].virtual_servers.push_back(servers[i]);
+                    socket_already_exists = true;
+                    break;
+                }
             }
+            if (socket_already_exists)
+                continue;
+            ListenSocket new_socket;
+            new_socket.ip = current_ip;
+            new_socket.port = port;
+            new_socket.virtual_servers.push_back(servers[i]);
+            new_socket.fd = socket(AF_INET, SOCK_STREAM, 0);
+            if (new_socket.fd < 0)
+                throw std::runtime_error("Failed to create socket");
+            int opt = 1;
+            if (setsockopt(new_socket.fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)) < 0)
+                throw std::runtime_error("setsockopt failed");
+            if (fcntl(new_socket.fd, F_SETFL, O_NONBLOCK) < 0)
+                throw std::runtime_error("fcntl failed to set non-blocking");
+            struct sockaddr_in address;
+            memset(&address, 0, sizeof(address));
+            address.sin_family = AF_INET;
+            address.sin_port = htons(port);
+            address.sin_addr.s_addr = inet_addr(current_ip.c_str());
+            if (bind(new_socket.fd, (struct sockaddr*)&address, sizeof(address)) < 0)
+                throw std::runtime_error("Bind failed");
+            if (listen(new_socket.fd, SOMAXCONN) < 0)
+                throw std::runtime_error("Listen failed");
+            std::cout << "Server listening on " << current_ip << ":" << port << std::endl;
+            _listening_sockets.push_back(new_socket);
         }
-        if (socket_already_exists) 
-            continue;
-        ListenSocket new_socket;
-        new_socket.ip = current_ip;
-        new_socket.port = current_port;
-        new_socket.virtual_servers.push_back(servers[i]);
-        new_socket.fd = socket(AF_INET, SOCK_STREAM, 0);
-        if (new_socket.fd < 0)
-            throw std::runtime_error("Failed to create socket");
-        int opt = 1;
-        if (setsockopt(new_socket.fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)) < 0)
-            throw std::runtime_error("setsockopt failed");
-        if (fcntl(new_socket.fd, F_SETFL, O_NONBLOCK) < 0)
-            throw std::runtime_error("fcntl failed to set non-blocking");
-        struct sockaddr_in address;
-        memset(&address, 0, sizeof(address));
-        address.sin_family = AF_INET;
-        address.sin_port = htons(current_port);
-        address.sin_addr.s_addr = inet_addr(current_ip.c_str());
-        if (bind(new_socket.fd, (struct sockaddr*)&address, sizeof(address)) < 0)
-            throw std::runtime_error("Bind failed");
-        if (listen(new_socket.fd, SOMAXCONN) < 0)
-            throw std::runtime_error("Listen failed");
-        std::cout << "Server listening on " << current_ip << ":" << current_port << std::endl;
-        _listening_sockets.push_back(new_socket);
     }
 }
 
@@ -123,8 +126,18 @@ void ServerManager::run() {
                     _clients.erase(current_fd);
                 } else {
                     Client& client = _clients[current_fd];
-                    client.appendRequestData(buffer, bytes_read);
-                    if (client.getState() == STATE_PROCESSING) {
+                    try {
+                        client.appendRequestData(buffer, bytes_read);
+                    } catch (const std::exception& e) {
+                        _error = ERROR_BAD_REQUEST;
+                    }
+                    if (_error != ERROR_NONE) {
+                        struct epoll_event mod_ev;
+                        mod_ev.events = EPOLLOUT;
+                        mod_ev.data.fd = current_fd;
+                        epoll_ctl(epoll_fd, EPOLL_CTL_MOD, current_fd, &mod_ev);
+                    }
+                    else if (client.getState() == STATE_PROCESSING) {
                         std::cout << "Request Fully Received for fd: " << current_fd << std::endl;
                         struct epoll_event mod_ev;
                         mod_ev.events = EPOLLOUT;

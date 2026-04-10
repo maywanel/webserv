@@ -1,6 +1,6 @@
 #include "ServerConfig.hpp"
 
-ServerConfig::ServerConfig() : _port(80), _client_max_body_size_set(false) {}
+ServerConfig::ServerConfig() : _client_max_body_size_set(false) {}
 
 const std::string& ServerConfig::getHost() const {
     return _host;
@@ -9,10 +9,10 @@ void ServerConfig::setHost(const std::string& host) {
     this->_host = host;
 }
 
-int ServerConfig::getPort() const {
+const std::vector<int>& ServerConfig::getPort() const {
     return _port;
 }
-void ServerConfig::setPort(int port) {
+void ServerConfig::setPort(const std::vector<int>& port) {
     this->_port = port;
 }
 
@@ -56,13 +56,6 @@ const std::vector<LocationConfig>& ServerConfig::getLocations() const {
 }
 void ServerConfig::setLocations(const std::vector<LocationConfig>& locations) {
     this->_locations = locations;
-}
-
-bool ServerConfig::isListenSet() const {
-    return _listen_set;
-}
-void ServerConfig::setListenSet(bool listen_set) {
-    this->_listen_set = listen_set;
 }
 
 bool ServerConfig::isClientMaxBodySizeSet() const {

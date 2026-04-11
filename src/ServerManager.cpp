@@ -16,15 +16,20 @@ bool ServerManager::isListeningSocket(int fd) {
     return false;
 }
 
+bool g_server_running = true;
+
+void handle_sigint(int signum) {
+    (void)signum;
+    std::cout << "\nServer shutting down... Cleaning up!" << std::endl;
+    g_server_running = false;
+}
+
 void ServerManager::setupSockets() {
     std::vector<ServerConfig> servers = _config.getServers();
     std::map<std::pair<std::string, int>, size_t> socket_map;
     for (size_t i = 0; i < servers.size(); ++i) {
         std::string current_ip = servers[i].getHost();
         std::vector<int> current_ports = servers[i].getPort();
-        for (size_t i = 0; i < current_ports.size(); ++i) {
-            std::cout << "=====> " << current_ip << ":" << current_ports[i] << std::endl;
-        }
         for (size_t p = 0; p < current_ports.size(); ++p) {
             int port = current_ports[p];
             std::pair<std::string, int> ip_port = std::make_pair(current_ip, port);
@@ -63,6 +68,8 @@ void ServerManager::setupSockets() {
 
 void ServerManager::run() {
     setupSockets();
+    extern bool g_server_running;
+    signal(SIGINT, handle_sigint);
     int epoll_fd = epoll_create(EPOLL_CLOEXEC); 
     if (epoll_fd == -1) throw std::runtime_error("epoll_create failed");
     for (size_t i = 0; i < _listening_sockets.size(); ++i) {
@@ -74,9 +81,10 @@ void ServerManager::run() {
     }
     struct epoll_event events[MAX_EVENTS];
     std::cout << "Server is now running and waiting for connections..." << std::endl;
-    while (true) {
+    while (g_server_running) {
         int num_events = epoll_wait(epoll_fd, events, MAX_EVENTS, -1);
         if (num_events == -1) {
+            if (!g_server_running) break;
             std::cerr << "epoll_wait error" << std::endl;
             continue;
         }
@@ -130,16 +138,12 @@ void ServerManager::run() {
                     try {
                         client.appendRequestData(buffer, bytes_read);
                     } catch (const std::exception& e) {
+                        std::cout << e.what() << std::endl;
                         _error = ERROR_BAD_REQUEST;
                     }
-                    if (_error != ERROR_NONE) {
-                        struct epoll_event mod_ev;
-                        mod_ev.events = EPOLLOUT;
-                        mod_ev.data.fd = current_fd;
-                        epoll_ctl(epoll_fd, EPOLL_CTL_MOD, current_fd, &mod_ev);
-                    }
-                    else if (client.getState() == STATE_PROCESSING) {
-                        std::cout << "Request Fully Received for fd: " << current_fd << std::endl;
+                    if (client.getState() == STATE_PROCESSING) {
+                        if (_error != ERROR_NONE)
+                            std::cout << "Request Fully Received for fd: " << current_fd << std::endl;
                         struct epoll_event mod_ev;
                         mod_ev.events = EPOLLOUT;
                         mod_ev.data.fd = current_fd;

@@ -63,5 +63,6 @@ class Client {
         std::string             getMimeType(const std::string& target_path);
         void                    generateErrorResponse(int error);
         std::string             generateAutoindex(const std::string& target_path, const std::string& uri);
+        std::string             Multipartextraction(const std::string& temp_file, const std::string& final_file, const std::string& boundary);
 };
 

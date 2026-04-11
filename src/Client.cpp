@@ -34,16 +34,17 @@ Client& Client::operator=(const Client& other) {
 }
 
 Client::~Client() {
-    if (_body_file.is_open()) {
+    if (_body_file.is_open())
         _body_file.close();
-    }
 }
 
 void Client::appendRequestData(const char* data, ssize_t len) {
     if (_state == STATE_READING_HEADERS) {
         _request_buffer.append(data, len);
         if (isHeaderComplete()) {
+            _state = STATE_PROCESSING;
             _request.parseRequest(_request_buffer);
+            _state = STATE_READING_HEADERS;
             if (!_virtual_servers.empty()) {
                 _matched_server = &_virtual_servers[0];
                 std::map<std::string, std::string> headers = _request.getHeaders();
@@ -247,30 +248,39 @@ void Client::generateResponse(const std::string& target_path, ErrorStatus error)
     if (_request.getMethod() == "POST") {
         std::string upload_dir = _matched_location ? _matched_location->getUploadDir() : "";
         if (!upload_dir.empty()) {
-            std::string final_upload_path = _matched_server->getRoot() + upload_dir;
-            std::cout << "Upload dir: " << final_upload_path << std::endl;
-            if (final_upload_path[final_upload_path.length() - 1] != '/') {
-                final_upload_path += "/";
+            std::string final_upload_dir = _matched_server->getRoot();
+            if (final_upload_dir[final_upload_dir.length() - 1] != '/') final_upload_dir += "/";
+            if (upload_dir[0] == '/') upload_dir = upload_dir.substr(1);
+            final_upload_dir += upload_dir;
+            if (final_upload_dir[final_upload_dir.length() - 1] != '/') final_upload_dir += "/";
+            std::map<std::string, std::string> headers = _request.getHeaders();
+            std::string content_type = headers.count("content-type") ? headers["content-type"] : "";
+            size_t boundary_pos = content_type.find("boundary=");
+            bool success = false;
+            std::string saved_path = "";
+            if (boundary_pos != std::string::npos) {
+                std::string boundary = content_type.substr(boundary_pos + 9);
+                saved_path = Multipartextraction(_temp_filename, final_upload_dir, boundary);
+                if (!saved_path.empty()) {
+                    std::remove(_temp_filename.c_str());
+                    success = true;
+                }
+            } else {
+                size_t last_slash = _request.getUri().find_last_of('/');
+                std::string uri_name = _request.getUri().substr(last_slash + 1);
+                if (uri_name.empty() || uri_name == "upload") uri_name = "curl_upload_" + _temp_filename;
+                saved_path = final_upload_dir + uri_name;
+                success = (std::rename(_temp_filename.c_str(), saved_path.c_str()) == 0);
             }
-            size_t last_slash = _request.getUri().find_last_of('/');
-            std::string file_name = _request.getUri().substr(last_slash + 1);
-            if (file_name.empty()) file_name = "uploaded_file" + _temp_filename;
-            final_upload_path += file_name;
-            if (std::rename(_temp_filename.c_str(), final_upload_path.c_str()) == 0) {
+            if (success) {
                 _response_buffer = "HTTP/1.1 201 Created\r\nContent-Length: 0\r\n\r\n";
                 _state = STATE_SENDING_RESPONSE;
-                std::cout << "Successfully uploaded file to: " << final_upload_path << std::endl;
-            }
-            else
+                std::cout << "Successfully saved file as: " << saved_path << std::endl;
+            } else {
                 generateErrorResponse(ERROR_INTERNAL_SERVER_ERROR);
+            }
             return;
-            
-        } 
-        // else {
-            // 3. If there is NO upload_dir, this POST is meant for a CGI script!
-            // We will handle CGI next, so for now, just return a 403 or pass it down.
-            // We'll leave this block open for the CGI implementation!
-        // }
+        }
     }
     if (target_path == "") {
         generateErrorResponse(ERROR_NOT_FOUND);
@@ -443,4 +453,55 @@ std::string Client::generateAutoindex(const std::string& target_path, const std:
     closedir(dir);
     html += "</table>\n<hr>\n</body>\n</html>";
     return html;
+}
+
+// Update your Client.hpp to match this new signature!
+std::string Client::Multipartextraction(const std::string& temp_file, const std::string& upload_dir, const std::string& boundary) {
+    std::ifstream in(temp_file.c_str(), std::ios::binary);
+    if (!in.is_open()) return "";
+    char buffer[8192];
+    in.read(buffer, sizeof(buffer));
+    std::string header_chunk(buffer, in.gcount());
+    std::string real_filename = "uploaded_file.bin";
+    size_t filename_pos = header_chunk.find("filename=\"");
+    if (filename_pos != std::string::npos) {
+        filename_pos += 10;
+        size_t filename_end = header_chunk.find("\"", filename_pos);
+        if (filename_end != std::string::npos)
+            real_filename = header_chunk.substr(filename_pos, filename_end - filename_pos);
+    }
+    size_t start_pos = header_chunk.find("\r\n\r\n");
+    if (start_pos == std::string::npos) return "";
+    start_pos += 4;
+    in.seekg(0, std::ios::end);
+    size_t file_size = in.tellg();
+    size_t tail_size = std::min((size_t)8192, file_size);
+    in.seekg(-tail_size, std::ios::end);
+    in.read(buffer, tail_size);
+    std::string tail_chunk(buffer, in.gcount());
+    std::string end_boundary = "\r\n--" + boundary + "--";
+    size_t end_pos_in_tail = tail_chunk.rfind(end_boundary);
+    size_t absolute_end_pos = file_size;
+    if (end_pos_in_tail != std::string::npos)
+        absolute_end_pos = (file_size - tail_size) + end_pos_in_tail;
+    else {
+        end_boundary = "--" + boundary + "--";
+        end_pos_in_tail = tail_chunk.rfind(end_boundary);
+        if (end_pos_in_tail != std::string::npos)
+            absolute_end_pos = (file_size - tail_size) + end_pos_in_tail;
+    }
+    std::string final_path = upload_dir + real_filename;
+    in.seekg(start_pos, std::ios::beg);
+    std::ofstream out(final_path.c_str(), std::ios::binary);
+    size_t bytes_to_copy = absolute_end_pos - start_pos;
+    size_t bytes_copied = 0;
+    while (bytes_copied < bytes_to_copy) {
+        size_t chunk = std::min((size_t)8192, bytes_to_copy - bytes_copied);
+        in.read(buffer, chunk);
+        out.write(buffer, in.gcount());
+        bytes_copied += in.gcount();
+    }
+    in.close();
+    out.close();
+    return final_path;
 }

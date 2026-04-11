@@ -18,21 +18,21 @@ bool ServerManager::isListeningSocket(int fd) {
 
 void ServerManager::setupSockets() {
     std::vector<ServerConfig> servers = _config.getServers();
+    std::map<std::pair<std::string, int>, size_t> socket_map;
     for (size_t i = 0; i < servers.size(); ++i) {
         std::string current_ip = servers[i].getHost();
         std::vector<int> current_ports = servers[i].getPort();
+        for (size_t i = 0; i < current_ports.size(); ++i) {
+            std::cout << "=====> " << current_ip << ":" << current_ports[i] << std::endl;
+        }
         for (size_t p = 0; p < current_ports.size(); ++p) {
             int port = current_ports[p];
-            bool socket_already_exists = false;
-            for (size_t j = 0; j < _listening_sockets.size(); ++j) {
-                if (_listening_sockets[j].ip == current_ip && _listening_sockets[j].port == port) {
-                    _listening_sockets[j].virtual_servers.push_back(servers[i]);
-                    socket_already_exists = true;
-                    break;
-                }
-            }
-            if (socket_already_exists)
+            std::pair<std::string, int> ip_port = std::make_pair(current_ip, port);
+            if (socket_map.find(ip_port) != socket_map.end()) {
+                size_t index = socket_map[ip_port];
+                _listening_sockets[index].virtual_servers.push_back(servers[i]);
                 continue;
+            }
             ListenSocket new_socket;
             new_socket.ip = current_ip;
             new_socket.port = port;
@@ -56,6 +56,7 @@ void ServerManager::setupSockets() {
                 throw std::runtime_error("Listen failed");
             std::cout << "Server listening on " << current_ip << ":" << port << std::endl;
             _listening_sockets.push_back(new_socket);
+            socket_map[ip_port] = _listening_sockets.size() - 1;
         }
     }
 }

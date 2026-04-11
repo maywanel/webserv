@@ -144,7 +144,7 @@ void WebServConfig::parse(const std::string& filename) {
                         if (!isValidIP(ip) || !isValidPort(port_str))
                             throw std::runtime_error("Config Error: Invalid IP:Port in listen directive -> " + listen_val);
                         current_server.setHost(ip);
-                        std::vector<int> port_vec;
+                        std::vector<int> port_vec = current_server.getPort();
                         port_vec.push_back(std::atoi(port_str.c_str()));
                         current_server.setPort(port_vec);
                     }
@@ -157,7 +157,7 @@ void WebServConfig::parse(const std::string& filename) {
                         else {
                             if (!isValidPort(listen_val))
                                 throw std::runtime_error("Config Error: Invalid Port in listen directive -> " + listen_val);
-                            std::vector<int> port_vec;
+                            std::vector<int> port_vec = current_server.getPort();
                             port_vec.push_back(std::atoi(listen_val.c_str()));
                             current_server.setPort(port_vec);
                         }

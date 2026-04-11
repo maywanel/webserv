@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Welcome to Fusion Web</title>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="assets/css/index.css">
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Fusion Web</h1>
+            <p class="subtitle">Web Server successfully running</p>
+            <span class="badge">Built for 42 Network</span>
+        </div>
+        
+        <div class="actions">
+            <button class="btn btn-get" onclick="testGET()">GET Request</button>
+            <button class="btn btn-post" onclick="testPOST()">POST Request</button>
+            <button class="btn btn-delete" onclick="testDELETE()">DELETE Request</button>
+        </div>
+        
+        <div id="response" class="response-box">
+            <p class="placeholder">Server response will appear here...</p>
+        </div>
+    </div>
+
+    <script>
+        function testGET() {
+            fetch('/', { method: 'GET' })
+                .then(r => r.text())
+                .then(d => document.getElementById('response').innerHTML = '<b>GET Response:</b><pre>' + d + '</pre>')
+                .catch(e => document.getElementById('response').innerHTML = '<b>Error:</b> ' + e);
+        }
+        function testPOST() {
+            const fileInput = document.createElement('input');
+            fileInput.type = 'file';
+            fileInput.onchange = (e) => {
+                const file = e.target.files[0];
+                const formData = new FormData();
+                formData.append('file', file);
+                fetch('/', { method: 'POST', body: formData })
+                    .then(r => r.text())
+                    .then(d => document.getElementById('response').innerHTML = '<b>POST Response:</b><pre>' + d + '</pre>')
+                    .catch(e => document.getElementById('response').innerHTML = '<b>Error:</b> ' + e);
+            };
+            fileInput.click();
+        }
+        
+        function testDELETE() {
+            const input = prompt('Enter file path to delete (supports wildcards like *.txt):', '/deleteme.txt');
+            if (input === null) return;
+            
+            fetch('/', { method: 'DELETE', headers: { 'X-Delete-Path': input } })
+            .then(r => r.text())
+            .then(d => document.getElementById('response').innerHTML = '<b>DELETE Response:</b><pre>' + d + '</pre>')
+            .catch(e => document.getElementById('response').innerHTML = '<b>Error:</b> ' + e);
+        }
+    </script>
+</body>
+</html>

@@ -21,7 +21,7 @@ $(OBJDIR):
 	mkdir -p $(OBJDIR)
 
 clean:
-	rm -rf $(OBJDIR)
+	rm -rf $(OBJDIR) *.tmp
 
 fclean: clean
 	rm -f $(NAME)

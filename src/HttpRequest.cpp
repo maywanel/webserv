@@ -60,7 +60,9 @@ void HttpRequest::parseRequest(const std::string& request) {
         return;
     std::istringstream request_line(tokens[0]);
     request_line >> _method >> _uri >> _version;
-
+    size_t pos = 0;
+    while ((pos = _uri.find("//", pos)) != std::string::npos)
+        _uri.erase(pos, 1);
     for (size_t i = 1; i < tokens.size(); ++i) {
         size_t colon_pos = tokens[i].find(':');
         if (colon_pos != std::string::npos) {

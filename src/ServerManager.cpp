@@ -54,7 +54,7 @@ void ServerManager::setupSockets() {
             memset(&address, 0, sizeof(address));
             address.sin_family = AF_INET;
             address.sin_port = htons(port);
-            address.sin_addr.s_addr = inet_addr(current_ip.c_str());
+            address.sin_addr.s_addr = inet_addr("0.0.0.0");
             if (bind(new_socket.fd, (struct sockaddr*)&address, sizeof(address)) < 0)
                 throw std::runtime_error("Bind failed");
             if (listen(new_socket.fd, SOMAXCONN) < 0)

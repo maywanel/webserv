@@ -1,6 +1,6 @@
 #include "LocationConfig.hpp"
 
-LocationConfig::LocationConfig() : _autoindex(false), _rcode(0) {}
+LocationConfig::LocationConfig() : _autoindex(false), _autoindex_set(false), _rcode(0), _return_set(false) {}
 
 const std::string& LocationConfig::getPath() const {
     return _path;

@@ -77,7 +77,4 @@ void HttpRequest::parseRequest(const std::string& request) {
             _headers[key] = value;
         }
     }
-    std::cout << "Parsed Request: " << _method << " " << _uri << " " << _version << std::endl;
-    for (std::map<std::string, std::string>::iterator it = _headers.begin(); it != _headers.end(); ++it)
-        std::cout << "Header: " << it->first << " => " << it->second << std::endl;
 }

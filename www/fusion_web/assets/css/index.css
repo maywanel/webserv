@@ -2,8 +2,8 @@
     --primary: #4F46E5;
     --success: #10B981;
     --danger: #EF4444;
-    --bg-gradient-1: #3B82F6;
-    --bg-gradient-2: #8B5CF6;
+    --bg-gradient-1: #001d4c;
+    --bg-gradient-2: #a37bff;
     --text-main: #1F2937;
     --text-light: #6B7280;
     --white: #FFFFFF;
@@ -35,7 +35,7 @@ body {
 }
 
 .container {
-    background: rgba(255, 255, 255, 0.95);
+    background: rgba(255, 255, 255, 0.439);
     backdrop-filter: blur(15px);
     border-radius: 24px;
     padding: 50px;
@@ -117,13 +117,16 @@ h1 {
 }
 
 .btn-get { background-color: var(--success); }
-.btn-get:hover { background-color: #059669; }
+.btn-get:hover { background-color: #059668cb; }
 
 .btn-post { background-color: var(--primary); }
-.btn-post:hover { background-color: #4338CA; }
+.btn-post:hover { background-color: #4438cac7; }
 
 .btn-delete { background-color: var(--danger); }
-.btn-delete:hover { background-color: #DC2626; }
+.btn-delete:hover { background-color: #dc2626c7; }
+
+.btn-cookies { background-color: var(--text-light); }
+.btn-cookies:hover { background-color: #6b7280c7; }
 
 .response-box {
     background: #F3F4F6;

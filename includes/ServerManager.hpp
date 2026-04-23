@@ -25,11 +25,12 @@ class ServerManager {
         WebServConfig               _config;
         std::map<int, Client>       _clients;
         ErrorStatus                 _error;
-
+        std::map<int, int>          _cgi_to_client_fd;
     public:
         ServerManager(const WebServConfig& config);
         ~ServerManager();
         void setupSockets();
         bool isListeningSocket(int fd);
         void run();
+        void checkTimeouts(int epoll_fd);
 };

@@ -1,27 +1,70 @@
 #include "Client.hpp"
 #include "ServerManager.hpp"
+#include <iostream>
+#include <sstream>
+
+static const ServerConfig* rebindMatchedServerPtr(const std::vector<ServerConfig>& src_servers,
+                                                  const std::vector<ServerConfig>& dst_servers,
+                                                  const ServerConfig* src_ptr) {
+    if (!src_ptr)
+        return NULL;
+    for (size_t i = 0; i < src_servers.size(); ++i) {
+        if (&src_servers[i] == src_ptr) {
+            if (i < dst_servers.size())
+                return &dst_servers[i];
+            break;
+        }
+    }
+    return NULL;
+}
+
+static const LocationConfig* rebindMatchedLocationPtr(const ServerConfig* src_server,
+                                                      const ServerConfig* dst_server,
+                                                      const LocationConfig* src_loc_ptr) {
+    if (!src_server || !dst_server || !src_loc_ptr)
+        return NULL;
+    const std::vector<LocationConfig>& src_locs = src_server->getLocations();
+    const std::vector<LocationConfig>& dst_locs = dst_server->getLocations();
+    for (size_t i = 0; i < src_locs.size(); ++i) {
+        if (&src_locs[i] == src_loc_ptr) {
+            if (i < dst_locs.size())
+                return &dst_locs[i];
+            break;
+        }
+    }
+    return NULL;
+}
 
 Client::Client()
-    : _fd(-1), _virtual_servers(), _matched_server(NULL), _state(STATE_READING_HEADERS), _last_activity(std::time(NULL)), _bytes_received(0), _content_length(0) {
-}
+    : _fd(-1), _virtual_servers(), _matched_server(NULL), _request_buffer(), _response_buffer(),
+      _state(STATE_READING_HEADERS), _last_activity(std::time(NULL)), _temp_filename(), _body_file(),
+      _bytes_received(0), _content_length(0), _matched_location(NULL), _request(), _session_manager(),
+      _cgi_pid(-1), _cgi_write_fd(-1), _cgi_read_fd(-1), _cgi_buffer(), _is_chunked(false) {}
 
 Client::Client(int fd, const std::vector<ServerConfig>& virtual_servers)
-    : _fd(fd), _virtual_servers(virtual_servers), _matched_server(NULL), _state(STATE_READING_HEADERS), _last_activity(std::time(NULL)), _bytes_received(0), _content_length(0) {
-}
+    : _fd(fd), _virtual_servers(virtual_servers), _matched_server(NULL), _request_buffer(), _response_buffer(),
+      _state(STATE_READING_HEADERS), _last_activity(std::time(NULL)), _temp_filename(), _body_file(),
+      _bytes_received(0), _content_length(0), _matched_location(NULL), _request(), _session_manager(),
+      _cgi_pid(-1), _cgi_write_fd(-1), _cgi_read_fd(-1), _cgi_buffer(), _is_chunked(false) {}
 
 Client::Client(const Client& other)
     : _fd(other._fd), _virtual_servers(other._virtual_servers),
-    _matched_server(other._matched_server), _request_buffer(other._request_buffer),
+    _matched_server(NULL), _request_buffer(other._request_buffer),
     _response_buffer(other._response_buffer), _state(other._state),
     _last_activity(other._last_activity), _temp_filename(other._temp_filename),
-    _bytes_received(other._bytes_received), _content_length(other._content_length) {
+    _bytes_received(other._bytes_received), _content_length(other._content_length),
+    _matched_location(NULL), _request(other._request), _session_manager(other._session_manager),
+    _cgi_pid(other._cgi_pid), _cgi_write_fd(other._cgi_write_fd), _cgi_read_fd(other._cgi_read_fd),
+    _cgi_buffer(other._cgi_buffer), _is_chunked(other._is_chunked) {
+    _matched_server = rebindMatchedServerPtr(other._virtual_servers, _virtual_servers, other._matched_server);
+    _matched_location = rebindMatchedLocationPtr(other._matched_server, _matched_server, other._matched_location);
 }
 
 Client& Client::operator=(const Client& other) {
     if (this != &other) {
         _fd = other._fd;
         _virtual_servers = other._virtual_servers;
-        _matched_server = other._matched_server;
+        _matched_server = rebindMatchedServerPtr(other._virtual_servers, _virtual_servers, other._matched_server);
         _request_buffer = other._request_buffer;
         _response_buffer = other._response_buffer;
         _state = other._state;
@@ -29,6 +72,14 @@ Client& Client::operator=(const Client& other) {
         _temp_filename = other._temp_filename;
         _bytes_received = other._bytes_received;
         _content_length = other._content_length;
+        _matched_location = rebindMatchedLocationPtr(other._matched_server, _matched_server, other._matched_location);
+        _request = other._request;
+        _session_manager = other._session_manager;
+        _cgi_pid = other._cgi_pid;
+        _cgi_write_fd = other._cgi_write_fd;
+        _cgi_read_fd = other._cgi_read_fd;
+        _cgi_buffer = other._cgi_buffer;
+        _is_chunked = other._is_chunked;
     }
     return *this;
 }
@@ -36,6 +87,21 @@ Client& Client::operator=(const Client& other) {
 Client::~Client() {
     if (_body_file.is_open())
         _body_file.close();
+}
+
+pid_t Client::getCgiPid() const { return _cgi_pid; }
+int Client::getCgiWriteFd() const { return _cgi_write_fd; }
+int Client::getCgiReadFd() const { return _cgi_read_fd; }
+
+std::string Client::extractSessionId(const std::string& cookie_header) {
+    size_t pos = cookie_header.find("session=");
+    if (pos == std::string::npos)
+        return "";
+    pos += 8;
+    size_t end = cookie_header.find(';', pos);
+    if (end == std::string::npos) 
+        return cookie_header.substr(pos);
+    return cookie_header.substr(pos, end - pos);
 }
 
 void Client::appendRequestData(const char* data, ssize_t len) {
@@ -70,28 +136,56 @@ void Client::appendRequestData(const char* data, ssize_t len) {
                 }
             }
             _state = STATE_READING_BODY;
-            _content_length = parseContentLength(_request_buffer);
+            std::map<std::string, std::string> headers = _request.getHeaders();
+            if (headers.count("transfer-encoding") && headers["transfer-encoding"] == "chunked")
+                _is_chunked = true;
+            else {
+                _is_chunked = false;
+                _content_length = parseContentLength(_request_buffer);
+            }
             std::stringstream ss;
             ss << "upload_temp_" << _fd << ".tmp";
             _temp_filename = ss.str();
+            _request.setBodyFilePath(_temp_filename);
             _body_file.open(_temp_filename.c_str(), std::ios::binary | std::ios::app);
             std::string leftover_body = extractBodyFromBuffer(_request_buffer);
-            if (!leftover_body.empty()) {
+            if (_is_chunked)
+                _cgi_buffer += leftover_body;
+            else if (!leftover_body.empty()) {
                 _body_file.write(leftover_body.c_str(), leftover_body.length());
                 _bytes_received += leftover_body.length();
             }
-            if (_bytes_received >= _content_length) {
+            if (!_is_chunked && _bytes_received >= _content_length){
                 _body_file.close();
+                _state = STATE_PROCESSING;
+            }
+            else if (_is_chunked && _cgi_buffer.find("0\r\n\r\n") != std::string::npos) {
+                std::string pureData = decodeChunked(_cgi_buffer);
+                _body_file.write(pureData.c_str(), pureData.length());
+                _body_file.close();
+                _cgi_buffer.clear();
                 _state = STATE_PROCESSING;
             }
         }
     } 
     else if (_state == STATE_READING_BODY) {
-        _body_file.write(data, len);
-        _bytes_received += len;
-        if (_bytes_received >= _content_length) {
-            _body_file.close();
-            _state = STATE_PROCESSING;
+        if (_is_chunked) {
+            _cgi_buffer.append(data, len);
+            if (_cgi_buffer.find("0\r\n\r\n") != std::string::npos) {
+                std::string pureData = decodeChunked(_cgi_buffer);
+                _body_file.write(pureData.c_str(), pureData.length());
+                _body_file.close();
+                _cgi_buffer.clear();
+                _state = STATE_PROCESSING;
+            }
+        }
+        else {
+            _body_file.write(data, len);
+            _bytes_received += len;
+            if (_bytes_received >= _content_length) {
+                _body_file.close();
+                _state = STATE_PROCESSING;
+            }
         }
     }
 }
@@ -276,11 +370,41 @@ void Client::generateResponse(const std::string& target_path, ErrorStatus error)
                 _response_buffer = "HTTP/1.1 201 Created\r\nContent-Length: 0\r\n\r\n";
                 _state = STATE_SENDING_RESPONSE;
                 std::cout << "Successfully saved file as: " << saved_path << std::endl;
-            } else {
-                generateErrorResponse(ERROR_INTERNAL_SERVER_ERROR);
             }
+            else
+                generateErrorResponse(ERROR_INTERNAL_SERVER_ERROR);
             return;
         }
+    }
+    if (_request.getUri() == "/session") {
+        std::map<std::string, std::string> headers = _request.getHeaders();
+        std::string session_id = "";
+        if (headers.count("cookie"))
+            session_id = extractSessionId(headers["cookie"]);
+        bool is_new_user = false;
+        if (session_id.empty() || !_session_manager.isValidSession(session_id)) {
+            session_id = _session_manager.createNewSession();
+            is_new_user = true;
+        }
+        _session_manager.incrementVisits(session_id);
+        int visits = _session_manager.getVisits(session_id);
+        std::ostringstream html;
+        html << "<!DOCTYPE html><html><head><title>Session Test</title></head><body style='text-align:center; font-family:sans-serif; margin-top:50px;'>"
+             << "<h1>Webserv Session Tracker</h1>"
+             << "<p>Your unique Session ID: <b>" << session_id << "</b></p>"
+             << "<h2>You have visited this page <span style='color:red;'>" << visits << "</span> times.</h2>"
+             << "<p>Refresh the page to see the counter go up!</p>"
+             << "</body></html>";
+        std::string body = html.str();
+        std::ostringstream content_length;
+        content_length << body.length();
+        std::string response_headers = "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n";
+        if (is_new_user)
+            response_headers += "Set-Cookie: session=" + session_id + "; Path=/; Max-Age=3600\r\n";
+        response_headers += "Content-Length: " + content_length.str() + "\r\n\r\n";
+        _response_buffer = response_headers + body;
+        _state = STATE_SENDING_RESPONSE;
+        return;
     }
     if (target_path == "") {
         generateErrorResponse(ERROR_NOT_FOUND);
@@ -299,9 +423,9 @@ void Client::generateResponse(const std::string& target_path, ErrorStatus error)
             }
             std::ostringstream oss;
             oss << autoindex_html.length();
-            response = "HTTP/1.1 200 OK\r\n"
-                       "Content-Type: text/html\r\n"
-                       "Content-Length: " + oss.str() + "\r\n\r\n" + autoindex_html;
+            response =  "HTTP/1.1 200 OK\r\n"
+                        "Content-Type: text/html\r\n"
+                        "Content-Length: " + oss.str() + "\r\n\r\n" + autoindex_html;
             _response_buffer = response;
             _state = STATE_SENDING_RESPONSE;
             return;
@@ -312,6 +436,27 @@ void Client::generateResponse(const std::string& target_path, ErrorStatus error)
         }
     }
     else {
+        bool is_cgi = false;
+        if (_matched_location) {
+            std::vector<std::string> exts = _matched_location->getCgiExt();
+            size_t dot = target_path.find_last_of('.');
+            if (dot != std::string::npos) {
+                std::string ext = target_path.substr(dot);
+                for (size_t i = 0; i < exts.size(); ++i) {
+                    if (exts[i] == ext) {
+                        is_cgi = true;
+                        break;
+                    }
+                }
+            }
+        }
+        std::cout << "Final target path: " << target_path << " (CGI: " << (is_cgi ? "Yes" : "No") << ")" << std::endl;
+        if (is_cgi) {
+            bool success = executeCgi(target_path);
+            if (!success)
+                generateErrorResponse(ERROR_INTERNAL_SERVER_ERROR);
+            return;
+        }
         std::ifstream file(target_path.c_str(), std::ios::binary);
         if (file.is_open()) {
             std::stringstream buffer;
@@ -321,9 +466,9 @@ void Client::generateResponse(const std::string& target_path, ErrorStatus error)
             std::ostringstream oss;
             oss << content.length();
             std::string mime_type = getMimeType(target_path);
-            response = "HTTP/1.1 200 OK\r\n"
-                       "Content-Type: " + mime_type + "\r\n"
-                       "Content-Length: " + oss.str() + "\r\n\r\n" + content;
+            response =  "HTTP/1.1 200 OK\r\n"
+                        "Content-Type: " + mime_type + "\r\n"
+                        "Content-Length: " + oss.str() + "\r\n\r\n" + content;
             file.close();
         }
         else {
@@ -362,6 +507,14 @@ void Client::generateErrorResponse(int error) {
         status_msg = "403 Forbidden";
         if (!has_custom_page)
             response = "HTTP/1.1 403 Forbidden\r\nContent-Length: 13\r\n\r\n403 Forbidden";
+    } else if (error == ERROR_REQUEST_TIMEOUT) {
+        status_msg = "408 Request Timeout";
+        if (!has_custom_page)
+            response = "HTTP/1.1 408 Request Timeout\r\nContent-Length: 19\r\n\r\n408 Request Timeout";
+    } else if (error == ERROR_GATEWAY_TIMEOUT) {
+        status_msg = "504 Gateway Timeout";
+        if (!has_custom_page)
+            response = "HTTP/1.1 504 Gateway Timeout\r\nContent-Length: 19\r\n\r\n504 Gateway Timeout";
     } else {
         status_msg = "500 Internal Server Error";
         if (!has_custom_page)
@@ -429,14 +582,14 @@ std::string Client::getMimeType(const std::string& target_path) {
 #include <dirent.h>
 
 std::string Client::generateAutoindex(const std::string& target_path, const std::string& uri) {
-    std::string html = "<!DOCTYPE html>\n<html>\n<head>\n<title>Index of " + uri + "</title>\n"
-                       "<style>body{font-family: monospace; font-size: 16px;} "
-                       "table{width: 100%; text-align: left;} "
-                       "th, td{padding: 5px; border-bottom: 1px solid #ccc;} "
-                       "a{text-decoration: none; color: #1a0dab;} "
-                       "a:hover{text-decoration: underline;}</style>\n"
-                       "</head>\n<body>\n<h1>Index of " + uri + "</h1>\n<hr>\n<table>\n"
-                       "<tr><th>Name</th></tr>\n";
+    std::string html =  "<!DOCTYPE html>\n<html>\n<head>\n<title>Index of " + uri + "</title>\n"
+                        "<style>body{font-family: monospace; font-size: 16px;} "
+                        "table{width: 100%; text-align: left;} "
+                        "th, td{padding: 5px; border-bottom: 1px solid #ccc;} "
+                        "a{text-decoration: none; color: #1a0dab;} "
+                        "a:hover{text-decoration: underline;}</style>\n"
+                        "</head>\n<body>\n<h1>Index of " + uri + "</h1>\n<hr>\n<table>\n"
+                        "<tr><th>Name</th></tr>\n";
     DIR* dir = opendir(target_path.c_str());
     if (dir == NULL)
         return "";
@@ -455,7 +608,6 @@ std::string Client::generateAutoindex(const std::string& target_path, const std:
     return html;
 }
 
-// Update your Client.hpp to match this new signature!
 std::string Client::Multipartextraction(const std::string& temp_file, const std::string& upload_dir, const std::string& boundary) {
     std::ifstream in(temp_file.c_str(), std::ios::binary);
     if (!in.is_open()) return "";
@@ -504,4 +656,156 @@ std::string Client::Multipartextraction(const std::string& temp_file, const std:
     in.close();
     out.close();
     return final_path;
+}
+
+std::vector<std::string> Client::buildCgiEnv(const std::string& script_path) {
+    std::vector<std::string> env;
+    const std::map<std::string, std::string>& headers = _request.getHeaders();
+    env.push_back("REQUEST_METHOD=" + _request.getMethod());
+    env.push_back("SCRIPT_NAME=" + script_path);
+    std::map<std::string, std::string>::const_iterator ct_it = headers.find("content-type");
+    env.push_back("CONTENT_TYPE=" + (ct_it != headers.end() ? ct_it->second : ""));
+    std::map<std::string, std::string>::const_iterator cl_it = headers.find("content-length");
+    env.push_back("CONTENT_LENGTH=" + (cl_it != headers.end() ? cl_it->second : ""));
+    env.push_back("SERVER_PROTOCOL=HTTP/1.1");
+    env.push_back("GATEWAY_INTERFACE=CGI/1.1");
+    if (_matched_server) {
+        const std::vector<std::string>& names = _matched_server->getServerNames();
+        env.push_back("SERVER_NAME=" + (names.empty() ? "localhost" : names[0]));
+        std::string server_port = "80";
+        std::map<std::string, std::string>::const_iterator host_it = headers.find("host");
+        if (host_it != headers.end()) {
+            size_t colon_pos = host_it->second.find(':');
+            if (colon_pos != std::string::npos && colon_pos + 1 < host_it->second.length())
+                server_port = host_it->second.substr(colon_pos + 1);
+        }
+        env.push_back("SERVER_PORT=" + server_port);
+    }
+    for (std::map<std::string, std::string>::const_iterator it = headers.begin(); it != headers.end(); ++it) {
+        std::string header_name = "HTTP_" + it->first;
+        for (size_t i = 0; i < header_name.length(); ++i) {
+            if (header_name[i] == '-')
+                header_name[i] = '_';
+            else
+                header_name[i] = std::toupper(header_name[i]);
+        }
+        env.push_back(header_name + "=" + it->second);
+    }
+    return env;
+}
+
+bool Client::executeCgi(const std::string& script_path) {
+    std::string interpreter = "";
+    if (_matched_location) {
+        std::vector<std::string> exts = _matched_location->getCgiExt();
+        std::vector<std::string> paths = _matched_location->getCgiPath();
+        size_t dot_pos = script_path.find_last_of('.');
+        if (dot_pos != std::string::npos) {
+            std::string ext = script_path.substr(dot_pos);
+            for (size_t i = 0; i < exts.size(); ++i) {
+                if (exts[i] == ext && i < paths.size()) {
+                    interpreter = paths[i];
+                    break;
+                }
+            }
+        }
+    }
+    if (interpreter.empty()) return false;
+
+    int pipe_in[2];
+    int pipe_out[2];
+    if (pipe(pipe_in) < 0 || pipe(pipe_out) < 0) return false;
+    fcntl(pipe_in[0], F_SETFL, O_NONBLOCK);
+    fcntl(pipe_in[1], F_SETFL, O_NONBLOCK);
+    fcntl(pipe_out[0], F_SETFL, O_NONBLOCK);
+    fcntl(pipe_out[1], F_SETFL, O_NONBLOCK);
+
+    pid_t pid = fork();
+    if (pid == -1) return false;
+
+    if (pid == 0) {
+        dup2(pipe_in[0], STDIN_FILENO);
+        dup2(pipe_out[1], STDOUT_FILENO);
+        close(pipe_in[0]); close(pipe_in[1]);
+        close(pipe_out[0]); close(pipe_out[1]);
+        std::vector<std::string> env_vec = buildCgiEnv(script_path);
+        char** envp = new char*[env_vec.size() + 1];
+        for (size_t i = 0; i < env_vec.size(); ++i) {
+            envp[i] = strdup(env_vec[i].c_str());
+        }
+        envp[env_vec.size()] = NULL;
+        char* argv[] = { (char*)interpreter.c_str(), (char*)script_path.c_str(), NULL };
+        execve(interpreter.c_str(), argv, envp);
+        exit(1); 
+    } 
+    else {
+        close(pipe_in[0]);
+        close(pipe_out[1]);
+        _cgi_pid = pid;
+        _cgi_write_fd = pipe_in[1];
+        _cgi_read_fd = pipe_out[0];
+        std::string FileName = _request.getBodyFilePath();
+        std::ifstream body_file(FileName.c_str(), std::ios::binary);
+        if (body_file.is_open()) {
+            std::stringstream buffer;
+            buffer << body_file.rdbuf();
+            std::string body = buffer.str();
+            if (!body.empty()) {
+                write(_cgi_write_fd, body.c_str(), body.length());
+            }
+            body_file.close();
+        }
+        close(_cgi_write_fd); 
+        _state = STATE_CGI_READING;
+        return true;
+    }
+}
+
+void Client::appendCgiOutput(const char* data, ssize_t len) {
+    _cgi_buffer.append(data, len);
+}
+
+void Client::parseCgiResponse() {
+    if (_cgi_buffer.empty()) {
+        generateErrorResponse(ERROR_INTERNAL_SERVER_ERROR);
+        return;
+    }
+    size_t header_end = _cgi_buffer.find("\r\n\r\n");
+    std::string cgi_headers = "";
+    std::string cgi_body = "";
+    if (header_end != std::string::npos) {
+        cgi_headers = _cgi_buffer.substr(0, header_end + 2);
+        cgi_body = _cgi_buffer.substr(header_end + 4);
+    } else {
+        cgi_body = _cgi_buffer;
+        cgi_headers = "Content-Type: text/plain\r\n"; 
+    }
+    std::ostringstream oss;
+    oss << cgi_body.length();
+    _response_buffer = "HTTP/1.1 200 OK\r\n" 
+                        + cgi_headers 
+                        + "Content-Length: " + oss.str() + "\r\n\r\n" 
+                        + cgi_body;
+    _cgi_buffer.clear();
+    _state = STATE_SENDING_RESPONSE;
+}
+
+std::string Client::decodeChunked(const std::string& chunked_body) {
+    std::string decoded = "";
+    size_t pos = 0;
+    
+    while (pos < chunked_body.length()) {
+        size_t end_of_hex = chunked_body.find("\r\n", pos);
+        if (end_of_hex == std::string::npos) break;
+        std::string hex_str = chunked_body.substr(pos, end_of_hex - pos);
+        size_t chunk_size = 0;
+        std::stringstream ss;
+        ss << std::hex << hex_str;
+        ss >> chunk_size;
+        if (chunk_size == 0) break;
+        pos = end_of_hex + 2; 
+        decoded += chunked_body.substr(pos, chunk_size);
+        pos += chunk_size + 2; 
+    }    
+    return decoded;
 }

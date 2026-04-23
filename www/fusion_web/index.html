@@ -10,7 +10,7 @@
 <body>
     <div class="container">
         <div class="header">
-            <h1>Fusion Web</h1>
+            <h1>Domain Expansion</h1>
             <p class="subtitle">Web Server successfully running</p>
             <span class="badge">Built for 42 Network</span>
         </div>
@@ -19,6 +19,7 @@
             <button class="btn btn-get" onclick="testGET()">GET Request</button>
             <button class="btn btn-post" onclick="testPOST()">POST Request</button>
             <button class="btn btn-delete" onclick="testDELETE()">DELETE Request</button>
+            <button class="btn btn-cookies" onclick="testCOOKIE()">Cookie Test</button>
         </div>
         
         <div id="response" class="response-box">
@@ -33,6 +34,7 @@
                 .then(d => document.getElementById('response').innerHTML = '<b>GET Response:</b><pre>' + d + '</pre>')
                 .catch(e => document.getElementById('response').innerHTML = '<b>Error:</b> ' + e);
         }
+
         function testPOST() {
             const fileInput = document.createElement('input');
             fileInput.type = 'file';
@@ -49,13 +51,41 @@
         }
         
         function testDELETE() {
-            const input = prompt('Enter file path to delete (supports wildcards like *.txt):', '/deleteme.txt');
+            let input = prompt('Enter exact file path to delete (example: /deleteme.txt):', '/deleteme.txt');
             if (input === null) return;
-            
-            fetch('/', { method: 'DELETE', headers: { 'X-Delete-Path': input } })
+
+            input = input.trim();
+            if (!input) {
+            document.getElementById('response').innerHTML = '<b>Error:</b> Empty path.';
+            return;
+            }
+
+            // Safety: only exact paths, no wildcard patterns
+            if (/[*?[\]{}]/.test(input)) {
+            document.getElementById('response').innerHTML = '<b>Error:</b> Wildcards are disabled. Use an exact file path.';
+            return;
+            }
+
+            if (!input.startsWith('/')) input = '/' + input;
+            if (input.includes('..')) {
+            document.getElementById('response').innerHTML = '<b>Error:</b> Invalid path.';
+            return;
+            }
+
+            if (!confirm(`Delete this exact file?\n${input}`)) return;
+
+            fetch(input, { method: 'DELETE' })
             .then(r => r.text())
             .then(d => document.getElementById('response').innerHTML = '<b>DELETE Response:</b><pre>' + d + '</pre>')
             .catch(e => document.getElementById('response').innerHTML = '<b>Error:</b> ' + e);
+        }
+
+
+        function testCOOKIE() {
+            fetch('/session', { method: 'GET', credentials: 'include' })
+                .then(r => r.text())
+                .then(d => document.getElementById('response').innerHTML = '<b>COOKIE /session Response:</b><pre>' + d + '</pre>')
+                .catch(e => document.getElementById('response').innerHTML = '<b>Error:</b> ' + e);
         }
     </script>
 </body>

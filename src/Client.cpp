@@ -284,8 +284,10 @@ std::string Client::getFinalPath(std::string raw_path) {
         return raw_path; 
     if (type == PATH_IS_DIR) {
         std::vector<std::string> index_file;
-        if (_matched_location)
+        if (_matched_location && !_matched_location->getIndex().empty())
             index_file = _matched_location->getIndex();
+        else if (_matched_server && !_matched_server->getIndex().empty())
+            index_file = _matched_server->getIndex();
         std::string base_path = raw_path;
         if (base_path[base_path.length() - 1] != '/')
             base_path += "/";

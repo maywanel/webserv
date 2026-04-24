@@ -59,9 +59,9 @@ void HttpRequest::parseRequest(const std::string& request) {
     if (tokens.empty())
         return;
     std::istringstream request_line(tokens[0]);
+    request_line >> _method >> _uri >> _version;
     if (_version != "HTTP/1.1")
         throw std::runtime_error("Unsupported HTTP version");
-    request_line >> _method >> _uri >> _version;
     size_t pos = 0;
     while ((pos = _uri.find("//", pos)) != std::string::npos)
         _uri.erase(pos, 1);
